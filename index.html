@@ -1,0 +1,447 @@
+<html><head><base href="." />
+<title>Connect Five - Local Multiplayer</title>
+<style>
+:root {
+  --board-bg: #2c3e50;
+  --cell-size: 60px;
+  --player1: #e74c3c;
+  --player2: #f1c40f;
+  --floating: #3498db;
+  --bomb: #2c3e50;
+}
+
+body {
+  font-family: 'Arial', sans-serif;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  margin: 0;
+  background: #34495e;
+  color: white;
+}
+
+.game-wrapper {
+  display: flex;
+  gap: 20px;
+  align-items: start;
+}
+
+.special-moves {
+  background: var(--board-bg);
+  padding: 20px;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 150px;
+}
+
+.scoreboard {
+  background: var(--board-bg);
+  padding: 20px;
+  border-radius: 10px;
+  min-width: 150px;
+}
+
+.score-item {
+  display: flex;
+  justify-content: space-between;
+  margin: 10px 0;
+}
+
+.game-container {
+  background: var(--board-bg);
+  padding: 20px;
+  border-radius: 10px;
+  box-shadow: 0 0 20px rgba(0,0,0,0.3);
+}
+
+.cell {
+  width: var(--cell-size);
+  height: var(--cell-size);
+  border: 2px solid #34495e;
+  border-radius: 50%;
+  display: inline-block;
+  vertical-align: top;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+}
+
+.cell.floating {
+  background: var(--floating);
+}
+
+.cell.bomb {
+  background: var(--bomb);
+}
+
+.cell.winning {
+  animation: pulse 1s infinite;
+}
+
+.board {
+  display: inline-grid;
+  grid-template-columns: repeat(7, var(--cell-size));
+  gap: 5px;
+  background: var(--board-bg);
+  padding: 10px;
+  border-radius: 10px;
+}
+
+.status {
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.player-indicator {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.player1-indicator {
+  background-color: var(--player1);
+}
+
+.player2-indicator {
+  background-color: var(--player2);
+}
+
+@keyframes pulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.1); }
+  100% { transform: scale(1); }
+}
+
+.special-button {
+  background: var(--board-bg);
+  color: white;
+  border: none;
+  padding: 15px;
+  border-radius: 5px;
+  cursor: not-allowed;
+  font-size: 16px;
+  transition: all 0.3s ease;
+  opacity: 0.5;
+}
+
+.special-button.enabled {
+  cursor: pointer;
+  opacity: 1;
+}
+
+.special-button.floating-move {
+  background: var(--floating);
+}
+
+.special-button.bomb-move {
+  background: var(--bomb);
+}
+
+.controls {
+  display: flex;
+  gap: 10px;
+}
+</style>
+</head>
+<body>
+<div class="game-wrapper">
+  <div class="special-moves">
+    <button class="special-button floating-move" id="floating-move" disabled>Place Floating Coin</button>
+    <button class="special-button bomb-move" id="bomb-move" disabled>Place Bomb</button>
+  </div>
+  
+  <div class="game-container">
+    <div class="status">Current Player: <span id="current-player">1</span>
+      <div class="player-indicator player1-indicator" id="player-indicator"></div>
+    </div>
+    <div class="board" id="board"></div>
+    <div class="controls">
+      <button onclick="nextGame()">Next Game</button>
+      <button onclick="resetGame(true)">Reset All</button>
+    </div>
+  </div>
+  
+  <div class="scoreboard">
+    <h3>Score</h3>
+    <div class="score-item">
+      <span>Player 1:</span>
+      <span id="score-p1">0</span>
+    </div>
+    <div class="score-item">
+      <span>Player 2:</span>
+      <span id="score-p2">0</span>
+    </div>
+  </div>
+</div>
+
+<script>
+const ROWS = 6;
+const COLS = 7;
+const WIN_LENGTH = 5;
+let currentPlayer = 1;
+let gameBoard = Array(ROWS).fill().map(() => Array(COLS).fill(0));
+let gameActive = true;
+let scores = [0, 0];
+let specialMove = null;
+let hasThreeInRow = false;
+let hasFourInRow = false;
+
+const CELL_TYPE = {
+  EMPTY: 0,
+  PLAYER1: 1,
+  PLAYER2: 2,
+  FLOATING: 3,
+  BOMB: 4
+};
+
+function createBoard() {
+  const board = document.getElementById('board');
+  board.innerHTML = '';
+  
+  for (let row = 0; row < ROWS; row++) {
+    for (let col = 0; col < COLS; col++) {
+      const cell = document.createElement('div');
+      cell.className = 'cell';
+      cell.dataset.row = row;
+      cell.dataset.col = col;
+      cell.addEventListener('click', () => handleMove(row, col));
+      board.appendChild(cell);
+    }
+  }
+  updateBoard();
+}
+
+function updateBoard() {
+  const cells = document.querySelectorAll('.cell');
+  cells.forEach(cell => {
+    const row = parseInt(cell.dataset.row);
+    const col = parseInt(cell.dataset.col);
+    cell.className = 'cell';
+    
+    switch(gameBoard[row][col]) {
+      case CELL_TYPE.PLAYER1:
+        cell.style.backgroundColor = 'var(--player1)';
+        break;
+      case CELL_TYPE.PLAYER2:
+        cell.style.backgroundColor = 'var(--player2)';
+        break;
+      case CELL_TYPE.FLOATING:
+        cell.style.backgroundColor = 'var(--floating)';
+        break;
+      case CELL_TYPE.BOMB:
+        cell.style.backgroundColor = 'var(--bomb)';
+        break;
+      default:
+        cell.style.backgroundColor = '';
+    }
+  });
+}
+
+function handleMove(clickedRow, col) {
+  if (!gameActive) return;
+  
+  if (specialMove) {
+    placeSpecialPiece(clickedRow, col);
+    return;
+  }
+  
+  const row = findLowestEmptyRow(col);
+  if (row === -1) return;
+  
+  gameBoard[row][col] = currentPlayer;
+  updateBoard();
+  
+  checkSpecialMoves(row, col);
+  
+  if (checkWin(row, col)) {
+    gameActive = false;
+    scores[currentPlayer - 1]++;
+    updateScores();
+    setTimeout(() => {
+      alert(`Player ${currentPlayer} wins!`);
+    }, 500);
+    return;
+  }
+  
+  if (!specialMove) {
+    switchPlayer();
+  }
+}
+
+function placeSpecialPiece(row, col) {
+  if (specialMove === 'floating') {
+    gameBoard[row][col] = CELL_TYPE.FLOATING;
+  } else if (specialMove === 'bomb') {
+    explodeBomb(row, col);
+  }
+  
+  updateBoard();
+  specialMove = null;
+  document.getElementById('floating-move').disabled = true;
+  document.getElementById('bomb-move').disabled = true;
+  switchPlayer();
+}
+
+function explodeBomb(row, col) {
+  for (let r = Math.max(0, row - 1); r <= Math.min(ROWS - 1, row + 1); r++) {
+    for (let c = Math.max(0, col - 1); c <= Math.min(COLS - 1, col + 1); c++) {
+      if (gameBoard[r][c] !== CELL_TYPE.FLOATING) {
+        gameBoard[r][c] = CELL_TYPE.EMPTY;
+      }
+    }
+  }
+}
+
+function checkSpecialMoves(row, col) {
+  hasThreeInRow = checkConsecutive(row, col, 3);
+  hasFourInRow = checkConsecutive(row, col, 4);
+  
+  document.getElementById('floating-move').disabled = !hasThreeInRow;
+  document.getElementById('bomb-move').disabled = !hasFourInRow;
+  
+  if (hasThreeInRow) {
+    document.getElementById('floating-move').classList.add('enabled');
+  }
+  if (hasFourInRow) {
+    document.getElementById('bomb-move').classList.add('enabled');
+  }
+}
+
+function checkConsecutive(row, col, length) {
+  const directions = [
+    [[0, 1], [0, -1]], // horizontal
+    [[1, 0], [-1, 0]], // vertical
+    [[1, 1], [-1, -1]], // diagonal
+    [[1, -1], [-1, 1]] // other diagonal
+  ];
+
+  for (const [dir1, dir2] of directions) {
+    let count = 1;
+    
+    let r = row + dir1[0];
+    let c = col + dir1[1];
+    while (r >= 0 && r < ROWS && c >= 0 && c < COLS && 
+           gameBoard[r][c] === gameBoard[row][col]) {
+      count++;
+      r += dir1[0];
+      c += dir1[1];
+    }
+
+    r = row + dir2[0];
+    c = col + dir2[1];
+    while (r >= 0 && r < ROWS && c >= 0 && c < COLS && 
+           gameBoard[r][c] === gameBoard[row][col]) {
+      count++;
+      r += dir2[0];
+      c += dir2[1];
+    }
+
+    if (count >= length) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function switchPlayer() {
+  currentPlayer = currentPlayer === 1 ? 2 : 1;
+  document.getElementById('current-player').textContent = currentPlayer;
+  document.getElementById('player-indicator').className = 
+    `player-indicator player${currentPlayer}-indicator`;
+}
+
+function updateScores() {
+  document.getElementById('score-p1').textContent = scores[0];
+  document.getElementById('score-p2').textContent = scores[1];
+}
+
+function nextGame() {
+  gameBoard = Array(ROWS).fill().map(() => Array(COLS).fill(0));
+  currentPlayer = 1;
+  gameActive = true;
+  updateBoard();
+}
+
+function resetGame(resetScores = false) {
+  if (resetScores) {
+    scores = [0, 0];
+    updateScores();
+  }
+  nextGame();
+}
+
+function findLowestEmptyRow(col) {
+  for (let row = ROWS - 1; row >= 0; row--) {
+    if (gameBoard[row][col] === CELL_TYPE.EMPTY) {
+      return row;
+    }
+  }
+  return -1;
+}
+
+function checkWin(row, col) {
+  const directions = [
+    [[0, 1], [0, -1]], // horizontal
+    [[1, 0], [-1, 0]], // vertical
+    [[1, 1], [-1, -1]], // diagonal
+    [[1, -1], [-1, 1]] // other diagonal
+  ];
+
+  for (const [dir1, dir2] of directions) {
+    let count = 1;
+    let positions = [[row, col]];
+
+    let r = row + dir1[0];
+    let c = col + dir1[1];
+    while (r >= 0 && r < ROWS && c >= 0 && c < COLS && 
+           gameBoard[r][c] === gameBoard[row][col]) {
+      count++;
+      positions.push([r, c]);
+      r += dir1[0];
+      c += dir1[1];
+    }
+
+    r = row + dir2[0];
+    c = col + dir2[1];
+    while (r >= 0 && r < ROWS && c >= 0 && c < COLS && 
+           gameBoard[r][c] === gameBoard[row][col]) {
+      count++;
+      positions.push([r, c]);
+      r += dir2[0];
+      c += dir2[1];
+    }
+
+    if (count >= WIN_LENGTH) {
+      const cells = document.querySelectorAll('.cell');
+      positions.forEach(([winRow, winCol]) => {
+        cells.forEach(cell => {
+          if (parseInt(cell.dataset.row) === winRow && 
+              parseInt(cell.dataset.col) === winCol) {
+            cell.classList.add('winning');
+          }
+        });
+      });
+      return true;
+    }
+  }
+  return false;
+}
+
+// Initialize game
+createBoard();
+
+// Event listeners for special move buttons
+document.getElementById('floating-move').addEventListener('click', () => {
+  specialMove = 'floating';
+});
+
+document.getElementById('bomb-move').addEventListener('click', () => {
+  specialMove = 'bomb';
+});
+</script>
+</body></html>
